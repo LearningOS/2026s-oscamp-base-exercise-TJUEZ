@@ -19,7 +19,25 @@ pub async fn producer_consumer(items: Vec<String>) -> Vec<String> {
     // TODO: Spawn producer task: iterate through items, send each one
     // TODO: Spawn consumer task: loop recv until channel closes, collect results
     // TODO: Wait for consumer to complete and return results
-    todo!()
+    let (tx, mut rx) = mpsc::channel(items.len().max(1));
+
+    let items_clone = items.clone();
+    let producer_handle = tokio::spawn(async move {
+        for item in items_clone {
+            tx.send(item).await.unwrap();
+        }
+    });
+
+    let consumer_handle = tokio::spawn(async move {
+        let mut results = Vec::new();
+        while let Some(item) = rx.recv().await {
+            results.push(item);
+        }
+        results
+    });
+
+    producer_handle.await.unwrap();
+    consumer_handle.await.unwrap()
 }
 
 /// Fan‑in pattern: multiple producers, one consumer.
@@ -31,7 +49,34 @@ pub async fn fan_in(n_producers: usize) -> Vec<String> {
     //       Each sends format!("producer {id}: message")
     // TODO: Drop the original sender (important! otherwise channel won't close)
     // TODO: Consumer loops receiving, collects and sorts
-    todo!()
+    let (tx, mut rx) = mpsc::channel(n_producers.max(1));
+
+    let mut handles = Vec::new();
+    for id in 0..n_producers {
+        let tx_clone = tx.clone();
+        let handle = tokio::spawn(async move {
+            tx_clone.send(format!("producer {}: message", id)).await.unwrap();
+        });
+        handles.push(handle);
+    }
+
+    drop(tx);
+
+    let consumer_handle = tokio::spawn(async move {
+        let mut results = Vec::new();
+        while let Some(msg) = rx.recv().await {
+            results.push(msg);
+        }
+        results
+    });
+
+    for handle in handles {
+        handle.await.unwrap();
+    }
+
+    let mut final_results = consumer_handle.await.unwrap();
+    final_results.sort();
+    final_results
 }
 
 #[cfg(test)]
